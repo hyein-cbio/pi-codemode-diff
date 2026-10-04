@@ -1,0 +1,22 @@
+# Dependencies and generated files
+.DS_Store
+node_modules/
+coverage/
+*.tsbuildinfo
+*.tgz
+*.log
+
+# Local credentials and environment
+.env
+.env.*
+!.env.example
+.npmrc
+*.pem
+*.key
+*.p12
+*.pfx
+credentials.json
+auth.json
+
+# Local agent configuration and session data
+.pi/

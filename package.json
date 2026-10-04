@@ -1,0 +1,56 @@
+{
+  "name": "pi-codemode-diff",
+  "version": "0.1.0",
+  "description": "Show edit and write diffs inside Pi codemode calls without adding them to model context.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hyein-cbio/pi-codemode-diff.git"
+  },
+  "homepage": "https://github.com/hyein-cbio/pi-codemode-diff#readme",
+  "bugs": {
+    "url": "https://github.com/hyein-cbio/pi-codemode-diff/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "codemode",
+    "diff"
+  ],
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test test/*.test.ts",
+    "test:coverage": "c8 --include=\"src/**/*.ts\" --reporter=text --reporter=json-summary npm test"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-ai": "^1.0.2",
+    "@earendil-works/pi-coding-agent": "^1.0.2",
+    "@earendil-works/pi-tui": "^1.0.2",
+    "@types/node": "^22.0.0",
+    "c8": "^12.0.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0"
+  }
+}
