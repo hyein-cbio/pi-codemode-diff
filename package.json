@@ -41,8 +41,8 @@
     "test:coverage": "c8 --include=\"src/**/*.ts\" --reporter=text --reporter=json-summary npm test"
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "*",
-    "@earendil-works/pi-tui": "*"
+    "@earendil-works/pi-coding-agent": ">=1.0.1",
+    "@earendil-works/pi-tui": ">=1.0.1"
   },
   "devDependencies": {
     "@earendil-works/pi-ai": "^1.0.2",

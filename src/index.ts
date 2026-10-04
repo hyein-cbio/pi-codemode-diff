@@ -8,6 +8,9 @@ import { registerDiffRenderer } from "./render.ts";
 import { registerWriteCapture } from "./write.ts";
 
 export default function codemodeDiff(pi: ExtensionAPI): void {
+  if (typeof pi.registerToolRenderer !== "function") {
+    throw new Error("pi-codemode-diff requires Pi >=1.0.1: registerToolRenderer is unavailable. Update Pi and reload the extension.");
+  }
   const capture = new Capture();
 
   pi.on("tool_execution_start", (event) => {

@@ -23,9 +23,11 @@ src/main.ts [edit] +1 -1
 
 ## Requirements
 
-- The extension APIs available in **Pi 1.0.2 or later**. This implementation targets 1.0.2.
+- **Pi 1.0.1 or later**. The test suite has been verified against Pi 1.0.1 and 1.0.2.
 - Node.js 22.19 or later.
 - `codemode` must be active. This extension does not activate it.
+
+The minimum host version is declared in `peerDependencies` for both `@earendil-works/pi-coding-agent` and `@earendil-works/pi-tui` as `>=1.0.1`. Pi 1.0.0 is not supported: it includes codemode but lacks `registerToolRenderer`, which was introduced in 1.0.1. A startup capability check also reports a clear upgrade requirement if the renderer API is unavailable.
 
 Public APIs used: `registerToolRenderer`, `tool_execution_start/end`, `tool_result`, `parentToolCallId`, `createWriteToolDefinition`, and `generateDiffString`.
 
