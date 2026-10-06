@@ -1,6 +1,6 @@
 {
   "name": "pi-codemode-diff",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Show edit and write diffs inside Pi codemode calls without adding them to model context.",
   "type": "module",
   "license": "MIT",

@@ -135,6 +135,14 @@ test("Unicode, emoji, and tabs fit narrow widths after resize and invalidation",
   }
 });
 
+test("Pi does not invent a renderer for marker-like or missing downstream renderers", () => {
+  let resolver: Parameters<ExtensionAPI["registerToolRenderer"]>[0] | undefined;
+  registerDiffRenderer({ registerToolRenderer(value: typeof resolver) { resolver = value; } } as unknown as ExtensionAPI, new Capture());
+  const marker: ToolRenderers = { renderShell: "self" };
+  assert.strictEqual(resolver!("codemode", () => marker), marker);
+  assert.equal(resolver!("codemode", () => undefined), undefined);
+});
+
 test("renderer composition keeps the original call renderer and shell", () => {
   let resolver: Parameters<ExtensionAPI["registerToolRenderer"]>[0] | undefined;
   registerDiffRenderer({ registerToolRenderer(value: typeof resolver) { resolver = value; } } as unknown as ExtensionAPI, new Capture());

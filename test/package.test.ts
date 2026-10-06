@@ -26,7 +26,11 @@ test("the packed npm artifact contains only distributable files and loads throug
     : await exec("npm", args, { cwd: repo });
   const [artifact] = JSON.parse(stdout) as Array<{ filename: string; files: Array<{ path: string }> }>;
   const files = artifact.files.map(file => file.path);
-  for (const required of ["package.json", "README.md", "LICENSE", "src/index.ts", "src/capture.ts", "src/changes.ts", "src/write.ts", "src/render.ts"]) {
+  for (const required of [
+    "package.json", "README.md", "LICENSE",
+    "src/index.ts", "src/capture.ts", "src/changes.ts", "src/write.ts", "src/render.ts",
+    "src/host.ts", "src/pig.ts",
+  ]) {
     assert.ok(files.includes(required), `${required} must be distributed`);
   }
   assert.ok(files.every(path => !/^(node_modules|test|coverage)\//.test(path) && !path.includes(".DS_Store")));

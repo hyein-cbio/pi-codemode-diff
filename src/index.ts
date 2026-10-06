@@ -5,13 +5,25 @@ import {
 import { Capture } from "./capture.ts";
 import { asRecord, DETAILS_KEY } from "./changes.ts";
 import { registerDiffRenderer } from "./render.ts";
+import { isPiGHost } from "./host.ts";
+import type { registerPiGDisplay } from "./pig.ts";
 import { registerWriteCapture } from "./write.ts";
 
-export default function codemodeDiff(pi: ExtensionAPI): void {
+export default function codemodeDiff(pi: ExtensionAPI): void | Promise<void> {
   if (typeof pi.registerToolRenderer !== "function") {
     throw new Error("pi-codemode-diff requires Pi >=1.0.1: registerToolRenderer is unavailable. Update Pi and reload the extension.");
   }
+  if (isPiGHost(pi)) {
+    // PiG waits for async factories, as Pi does. Pi never loads this module
+    // and keeps its original synchronous registration path.
+    return import("./pig.ts").then(({ registerPiGDisplay }) => register(pi, registerPiGDisplay));
+  }
+  register(pi);
+}
+
+function register(pi: ExtensionAPI, createPiGDisplay?: typeof registerPiGDisplay): void {
   const capture = new Capture();
+  const publishPiG = createPiGDisplay?.(pi, capture);
 
   pi.on("tool_execution_start", (event) => {
     capture.start(event.toolCallId, event.toolName, event.parentToolCallId);
@@ -47,12 +59,16 @@ export default function codemodeDiff(pi: ExtensionAPI): void {
     if (event.isError && capture.isNested(event.toolCallId)) {
       capture.reportError(event.toolCallId);
     }
-    capture.end(event.toolCallId);
+    try {
+      if (event.toolName === "codemode") publishPiG?.(event.toolCallId);
+    } finally {
+      capture.end(event.toolCallId);
+    }
   });
   pi.on("session_start", () => capture.clear());
   pi.on("session_shutdown", () => capture.clear());
   pi.on("agent_end", () => capture.clear());
 
   registerWriteCapture(pi, capture);
-  registerDiffRenderer(pi, capture);
+  if (!publishPiG) registerDiffRenderer(pi, capture);
 }

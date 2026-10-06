@@ -16,7 +16,7 @@ function safeText(text: string): string {
   return text.replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, "�").replace(/\t/g, "   ");
 }
 
-function inlineText(text: string): string {
+export function inlineText(text: string): string {
   return safeText(text).replace(/\n/g, "\\n");
 }
 

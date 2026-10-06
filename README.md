@@ -2,7 +2,7 @@
 
 A Pi extension that **shows file diffs for `edit` and `write` calls made inside codemode**.
 
-The existing renderer still handles the codemode script, nested call status, and script output. This extension adds per-call file diffs below that output without changing the result content sent to the model.
+The existing renderer still handles the codemode script, nested call status, and script output. In Pi, this extension adds per-call file diffs below that output without changing the result content sent to the model. In PiG, it preserves the native codemode card and displays completed diffs in a separate transcript entry (see [PiG compatibility](#pig-compatibility)).
 
 ```diff
 codemode
@@ -36,10 +36,10 @@ Public APIs used: `registerToolRenderer`, `tool_execution_start/end`, `tool_resu
 Install the released version directly from GitHub:
 
 ```bash
-pi install git:github.com/hyein-cbio/pi-codemode-diff@v0.1.0
+pi install git:github.com/hyein-cbio/pi-codemode-diff@v0.1.1
 ```
 
-After the package is published to npm, you can also install it with:
+You can also install the released package from npm:
 
 ```bash
 pi install npm:pi-codemode-diff
@@ -66,6 +66,43 @@ pi install /path/to/pi-codemode-diff
 In an existing Pi session, run `/reload` after installation. Run `/reload` again after changing the source. You do not need to install the package twice or copy it into the global extensions directory.
 
 The package does not bundle duplicate copies of host-provided modules. Running it through Pi's extension loader does not require installing the development dependencies with `npm install`.
+
+## PiG compatibility
+
+PiG's Node subprocess renderer API has a documented limitation ([D89](https://github.com/MichaelKinsy/PiG/blob/main/docs/parity/DIVERGENCES.md)): `next()` returns a marker, not callable render functions. This extension therefore does **not** replace or wrap PiG's codemode renderer.
+
+Only when running inside PiG's Node extension runtime:
+
+- Completed codemode calls with captured changes append a `pi-codemode-diff:pig` custom entry, labeled with the parent call ID. The original script, nested call status, and output remain under PiG's control.
+- The entry uses the same **3-change / 8-visual-line preview**, diff colors, sanitization, and expanded view as Pi. Use Ctrl+O to toggle expansion.
+- Custom entries are persisted but **excluded from model context**. Parent result metadata is still recorded; `content`, `structuredContent`, script values, and success/failure are unchanged.
+- Diffs appear after the parent call completes, not as a live partial preview. Concurrent calls can finish out of order; the parent ID identifies each entry.
+- Newly recorded entries work after resume/reload. Older PiG sessions with only `details.piCodemodeDiff` and no custom entry are not backfilled.
+
+Host detection checks PiG's SDK shim `__runtime()` and requires its `api` to be the exact extension API object. It does not infer PiG from a missing renderer, `.pig` paths, or inherited environment variables. This private shim contract is intentionally fail-closed: if PiG removes it, the PiG display fallback will not activate. Normal Pi always keeps the original synchronous renderer-composition path and never imports the PiG-only `src/pig.ts` module.
+
+For local PiG use:
+
+```bash
+pig -e /path/to/pi-codemode-diff/src/index.ts
+# Or install persistently, then /reload in an existing session:
+pig install /path/to/pi-codemode-diff
+```
+
+### Local executable verification
+
+The PiG compatibility path was also checked with installed **Pi 1.0.3** and **PiG 0.4.1+1.0.3** executables, not only a mocked renderer. Isolated offline sessions with a scripted local provider compared pre-change and updated extension behavior: direct write, nested create/edit/overwrite, long diffs, read-only calls, and script failure after a successful write. Model-facing results (excluding elapsed time), success/error status, and written bytes matched. Only PiG produced the additional custom entries.
+
+The installed PiG interactive TUI was exercised through a PTY: live completed-entry display, collapsed preview, Ctrl+O expansion/collapse, saved-session resume, and `/reload` all passed. These checks cover those versions and scenarios, not every host feature, every third-party extension stack, or byte-for-byte UI parity. PiG still uses separate completion-time entries rather than Pi's inline/live diff section.
+
+### Revalidate after a PiG upgrade
+
+Because host detection depends on a private SDK shim, revalidate compatibility for each PiG version you intend to support:
+
+1. Record `pi --version` and `pig --version`. Run `npm run typecheck` and `npm test` to check the unchanged Pi path and unit regressions.
+2. Run `PIG_NODE_RUNTIME_DIR=/path/to/PiG/coding/extension/host/subprocess/runtime-node npm test` with runtime sources matching the installed PiG version. Confirm that the PiG loader test passes, rather than being skipped; this checks the shim identity, lazy loading, and entry renderer registration.
+3. In an isolated temporary workspace, load the extension with the installed `pig` executable and exercise the [manual session checks](#manual-session-checks). Verify the completed `File changes` entries, Ctrl+O expansion/collapse, session resume, and `/reload`. Repeat the Pi checks to confirm that no PiG custom entries appear there.
+4. If the shim identity check stops matching, investigate PiG's current runtime contract before updating `src/host.ts`. Do not substitute executable names, inherited environment variables, or missing render functions as host detection. Update the verified-version record only after both loader and executable checks pass.
 
 ## Preview and full view
 
@@ -108,7 +145,7 @@ Nested edit/write
     → Existing codemode output + additional diff rendering
 ```
 
-Display data is preserved **only in the parent result's `details`**, using this format:
+In Pi, display data is preserved **only in the parent result's `details`**, using this format. PiG additionally stores the same data in the non-context custom entry described above:
 
 ```typescript
 {
@@ -161,13 +198,18 @@ npm ci
 npm run typecheck
 npm test
 npm run test:coverage
+
+# Optional: exercise PiG's actual Node SDK shim and jiti extension loader.
+# Use a PiG checkout's coding/extension/host/subprocess/runtime-node directory:
+PIG_NODE_RUNTIME_DIR=/path/to/PiG/coding/extension/host/subprocess/runtime-node npm test
 ```
 
-The test suite has four layers:
+The test suite has five layers:
 
 - **Unit and event-hook tests:** capture isolation and ordering, metadata validation and serialization, unchanged model-facing result content, lifecycle cleanup, and renderer composition.
 - **Filesystem edge cases:** new and overwritten files, empty files, parallel writes through symlinks, cancellation before and after a mutation, unreadable snapshots, binary content, invalid UTF-8, and exact written bytes despite display normalization.
 - **Real Pi integration:** the SDK's actual extension loader, event pipeline, codemode sandbox, and built-in tools run against temporary workspaces. Tests cover direct-call compatibility, disabled tools, nested helper calls, parallel codemode calls, blocked writes, final errors introduced by another result handler, persistent session resume, and extension reload. Pi's native tool component is also exercised for diff expansion and theme changes.
+- **PiG compatibility tests:** fail-closed host identification, isolated final entries, persisted entry rendering, expansion, sanitization, and final nested error status. The optional PiG loader fixture uses PiG's real runtime/SDK modules with stubbed host append IPC; it is not an end-to-end terminal UI test.
 - **Package smoke test:** `npm pack` creates an artifact in a temporary directory. The test checks its file list, extracts it, and loads the extracted extension through real Pi.
 
 Integration tests use Pi's local faux provider with scripted responses, not a remote model. Credentials, settings, session files, and workspaces are isolated in temporary directories. Tests do not modify your global Pi configuration.
@@ -197,5 +239,7 @@ src/capture.ts   Codemode ancestry and session-local capture state
 src/changes.ts   Display metadata and write diff generation
 src/write.ts     Built-in write delegation and in-queue snapshots
 src/render.ts    Renderer composition, previews, and full view
+src/host.ts      Fail-closed PiG host identification
+src/pig.ts       Lazily loaded PiG-only non-context entry display
 test/            Unit, filesystem, real-Pi integration, and package tests
 ```
