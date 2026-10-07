@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,7 +13,11 @@ import { isPiGHost } from "../src/host.ts";
 import { runtimeFixture } from "./runtime-fixture.ts";
 import { PIG_ENTRY_TYPE, registerPiGDisplay } from "../src/pig.ts";
 
-const theme = { fg: (_token: string, value: string) => value, bold: (value: string) => value } as unknown as Theme;
+const theme = {
+  fg: (_token: string, value: string) => value,
+  bold: (value: string) => value,
+  inverse: (value: string) => `\u001b[7m${value}\u001b[27m`,
+} as unknown as Theme;
 const change: Change = {
   toolCallId: "a/1", tool: "write", kind: "create", path: "new.ts",
   diff: Array.from({ length: 30 }, (_, i) => `+${i + 1} line-${i + 1}`).join("\n"),
@@ -45,6 +49,9 @@ test("Pi loads and runs without the PiG-only display module even being present",
       await writeFile(join(root, name), await readFile(join(source, name)));
     }
   }
+  // Local extensions must install their own non-host dependencies.
+  await mkdir(join(root, "node_modules"));
+  await cp(fileURLToPath(new URL("../node_modules/diff", import.meta.url)), join(root, "node_modules/diff"), { recursive: true });
   const fixture = await runtimeFixture(t, { extensionPath: join(root, "index.ts") });
   const result = await fixture.codemode('await tools.write({path: "pi-only.txt", content: "unchanged Pi path"});');
   assert.equal(result.isError, false);
@@ -106,6 +113,18 @@ test("PiG persisted entries share safe previews, expansion, and width handling",
   assert.ok(host.render(data)!.render(16).every(line => visibleWidth(line) <= 16));
   for (const invalid of [null, {}, { toolCallId: 42 }, { ...data, [DETAILS_KEY]: { version: 2, changes: [change] } }, { ...data, [DETAILS_KEY]: { version: 1, changes: [] } }]) {
     assert.equal(host.render(invalid), undefined);
+  }
+});
+
+test("PiG persisted replacements highlight changed words in both display modes", () => {
+  const host = harness();
+  const data = { toolCallId: "a", [DETAILS_KEY]: { version: 1, changes: [{
+    ...change, kind: "overwrite", diff: "-1 const timeout = 1000;\n+1 const timeout = 5000;",
+  }] } };
+  for (const expanded of [false, true]) {
+    const output = host.render(JSON.parse(JSON.stringify(data)), expanded)!.render(80).join("\n");
+    assert.ok(output.includes(theme.inverse("1000")));
+    assert.ok(output.includes(theme.inverse("5000")));
   }
 });
 

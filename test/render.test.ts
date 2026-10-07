@@ -9,6 +9,7 @@ import { diffSection, PREVIEW_CHANGES, PREVIEW_LINES, registerDiffRenderer } fro
 const theme = {
   fg: (_token: string, text: string) => text,
   bold: (text: string) => text,
+  inverse: (text: string) => `\u001b[7m${text}\u001b[27m`,
 } as unknown as Theme;
 
 function change(id: string, diff = Array.from({ length: 30 }, (_, i) => `+${i + 1} line-${i + 1}`).join("\n")): Change {
@@ -46,6 +47,54 @@ test("file paths and file contents cannot inject terminal controls", () => {
   const rendered = text(diffSection([malicious], true, theme));
   assert.equal(rendered.includes("\u001b"), false);
   assert.match(rendered, /a\\n/);
+});
+
+test("edit and write replacements highlight words in preview and full view without mutating metadata", () => {
+  for (const tool of ["edit", "write"] as const) {
+    const item: Change = { ...change("a", "-1 const timeout = 1000;\n+1 const timeout = 5000;"), tool, kind: tool === "edit" ? "edit" : "overwrite" };
+    const saved = JSON.stringify(item);
+    for (const expanded of [false, true]) {
+      const output = text(diffSection([item], expanded, theme));
+      assert.ok(output.includes(theme.inverse("1000")));
+      assert.ok(output.includes(theme.inverse("5000")));
+      assert.equal(JSON.stringify(item), saved, "Styling must not enter persisted metadata");
+    }
+  }
+});
+
+test("replacements reducing repeated spaces preserve each line's original spacing", () => {
+  const item = change("a", "-1 const  timeout = 1000;\n+1 const timeout = 1000;");
+  for (const expanded of [false, true]) {
+    const output = text(diffSection([item], expanded, theme));
+    assert.match(output, /-1 const  timeout = 1000;/);
+    assert.match(output, /\+1 const timeout = 1000;/);
+  }
+});
+
+test("word highlighting only introduces trusted ANSI after sanitizing file content", () => {
+  const item = change("a", "-1 \told\u001b[2J\u009b2J\n+1 \tnew\u001b[2J\u009b2J");
+  const output = text(diffSection([item], true, theme));
+  assert.ok(output.includes(theme.inverse("old")));
+  assert.ok(output.includes(theme.inverse("new")));
+  assert.equal(output.includes("\u001b[2J"), false);
+  assert.equal(output.includes("\u009b"), false);
+  assert.equal(output.includes("\t"), false);
+});
+
+test("highlighted Unicode replacements wrap within resized widths and retain full content", () => {
+  const before = "before ".repeat(80) + "이전 😀";
+  const after = "before ".repeat(80) + "이후 🚀";
+  const item = change("a", `-1 ${before}\n+1 ${after}`);
+  for (const expanded of [false, true]) {
+    const section = diffSection([item], expanded, theme);
+    for (const width of [16, 40, 80, 16]) {
+      section.invalidate();
+      const lines = section.render(width);
+      assert.ok(lines.every(line => visibleWidth(line) <= width));
+      if (expanded) assert.ok(lines.join("\n").includes("\u001b[7m"));
+      else assert.match(lines.join("\n"), /more/);
+    }
+  }
 });
 
 test("original result rendering is preserved and gets its own previous component", () => {

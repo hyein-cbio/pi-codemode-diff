@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -29,7 +29,7 @@ test("the packed npm artifact contains only distributable files and loads throug
   for (const required of [
     "package.json", "README.md", "LICENSE",
     "src/index.ts", "src/capture.ts", "src/changes.ts", "src/write.ts", "src/render.ts",
-    "src/host.ts", "src/pig.ts",
+    "src/host.ts", "src/pig.ts", "src/diff.ts",
   ]) {
     assert.ok(files.includes(required), `${required} must be distributed`);
   }
@@ -40,6 +40,12 @@ test("the packed npm artifact contains only distributable files and loads throug
     const content = await readFile(join(directory, "package", path), "utf8");
     assert.doesNotMatch(content, personalHome, `${path} must not contain a machine-specific home directory`);
   }
+  // Provision the declared runtime dependency, as Pi does for npm/git installs,
+  // without network access or installing duplicate host-provided modules.
+  const manifest = JSON.parse(await readFile(join(directory, "package/package.json"), "utf8"));
+  assert.ok(manifest.dependencies.diff);
+  await mkdir(join(directory, "package/node_modules"));
+  await cp(join(repo, "node_modules/diff"), join(directory, "package/node_modules/diff"), { recursive: true });
   const fixture = await runtimeFixture(t, { extensionPath: join(directory, "package/src/index.ts") });
   const result = await fixture.codemode('await tools.write({path: "packed.txt", content: "from the packed artifact"});');
   assert.equal(result.isError, false);

@@ -3,6 +3,7 @@ import { readFile, writeFile, access } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
 import { stripVTControlCharacters } from "node:util";
+import chalk from "chalk";
 import { initTheme, ToolExecutionComponent } from "@earendil-works/pi-coding-agent";
 import type { TUI } from "@earendil-works/pi-tui";
 import { fauxAssistantMessage, Type } from "@earendil-works/pi-ai";
@@ -156,6 +157,48 @@ test("a real failed edit does not change the file or produce a success diff", op
   assert.equal(result.isError, true);
   assert.equal(readChanges(result.details), undefined);
   assert.equal(await readFile(join(fixture.cwd, "a"), "utf8"), "original");
+});
+
+test("real Pi highlights nested edit/write replacements after theme changes and session resume", options, async t => {
+  // Native theme attributes use Chalk, which disables them on non-TTY test output.
+  const level = chalk.level;
+  chalk.level = 3;
+  t.after(() => { chalk.level = level; });
+  const fixture = await runtimeFixture(t);
+  const code = `
+    await tools.write({path: "words.ts", content: "const timeout = 1000;\\n"});
+    await tools.edit({path: "words.ts", edits: [{oldText: "1000", newText: "5000"}]});
+    await tools.write({path: "words.ts", content: "const timeout = 9000;\\n"});
+  `;
+  const result = await fixture.codemode(code);
+  const saved = JSON.stringify(result.details);
+  const native = fixture.session.getToolDefinition("codemode")!;
+  const renderers = fixture.session.extensionRunner.resolveToolRenderers("codemode", () => native)!;
+  initTheme("dark", false);
+  const component = new ToolExecutionComponent("codemode", "root", { code }, {}, { ...native, ...renderers }, { requestRender() {} } as TUI, fixture.cwd);
+  component.setArgsComplete();
+  component.updateResult(result);
+  for (const expanded of [false, true, false]) {
+    component.setExpanded(expanded);
+    const output = component.render(100).join("\n");
+    for (const word of ["1000", "5000", "9000"]) assert.ok(output.includes(`\u001b[7m${word}\u001b[27m`), JSON.stringify(output));
+  }
+  const dark = component.render(100).join("\n");
+  initTheme("light", false);
+  component.invalidate();
+  const light = component.render(100).join("\n");
+  assert.notEqual(light, dark, "Theme invalidation must rebuild the colored diff");
+  assert.ok(light.includes("\u001b[7m9000\u001b[27m"));
+  assert.equal(JSON.stringify(result.details), saved);
+  const resumed = await fixture.resume();
+  const persisted = resumed.messages.find(message => message.role === "toolResult" && message.toolCallId === "root");
+  assert.ok(persisted && persisted.role === "toolResult");
+  const resumedNative = resumed.getToolDefinition("codemode")!;
+  const resumedRenderers = resumed.extensionRunner.resolveToolRenderers("codemode", () => resumedNative)!;
+  const replay = new ToolExecutionComponent("codemode", "root", { code }, {}, { ...resumedNative, ...resumedRenderers }, { requestRender() {} } as TUI, fixture.cwd);
+  replay.setArgsComplete();
+  replay.updateResult(persisted);
+  assert.ok(replay.render(100).join("\n").includes("\u001b[7m9000\u001b[27m"));
 });
 
 test("Pi's actual tool component composes native codemode output with expandable diffs", options, async t => {

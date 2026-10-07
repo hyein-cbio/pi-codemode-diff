@@ -23,7 +23,7 @@ src/main.ts [edit] +1 -1
 
 ## Requirements
 
-- **Pi 1.0.1 or later**. The test suite has been verified against Pi 1.0.1 and 1.0.2.
+- **Pi 1.0.1 or later**. The current test suite runs against Pi 1.0.2; the minimum-host contract was also verified against Pi 1.0.1 in earlier releases.
 - Node.js 22.19 or later.
 - `codemode` must be active. This extension does not activate it.
 
@@ -36,7 +36,7 @@ Public APIs used: `registerToolRenderer`, `tool_execution_start/end`, `tool_resu
 Install the released version directly from GitHub:
 
 ```bash
-pi install git:github.com/hyein-cbio/pi-codemode-diff@v0.1.1
+pi install git:github.com/hyein-cbio/pi-codemode-diff@v0.1.2
 ```
 
 You can also install the released package from npm:
@@ -65,7 +65,7 @@ pi install /path/to/pi-codemode-diff
 
 In an existing Pi session, run `/reload` after installation. Run `/reload` again after changing the source. You do not need to install the package twice or copy it into the global extensions directory.
 
-The package does not bundle duplicate copies of host-provided modules. Running it through Pi's extension loader does not require installing the development dependencies with `npm install`.
+The package does not bundle duplicate copies of host-provided modules. Pi installs the `diff` runtime dependency for npm/git installations. For a local checkout, run `npm install --omit=dev --omit=peer --ignore-scripts` before loading it (or `npm ci` for development); Pi does not install local-package dependencies.
 
 ## PiG compatibility
 
@@ -112,6 +112,7 @@ Because host detection depends on a private SDK shim, revalidate compatibility f
 - If you customize the keybinding in Pi, the expansion hint uses your configured key.
 - Long lines wrap to the terminal width before the preview limit is applied.
 - Repeated changes to the same file appear separately by call; they are not merged into a cumulative diff.
+- Single-line replacements highlight changed words with inverse video: green on added lines, red on removed lines, like Pi's native edit diff. This works in both preview and expanded views, for captured edits and write overwrites, including PiG entries. Like Pi, only a consecutive block with exactly one removed and one added line gets word highlighting; larger replacement blocks and standalone additions/deletions keep line colors. Leading indentation is not highlighted. Whitespace changes that cannot be reconstructed exactly keep their original lines without word highlighting. Very large or complex word comparisons also fall back to line colors to keep rendering responsive.
 
 Full view means **all change hunks in the captured diff**, not the entire unchanged file. The surrounding context lines and omission markers produced by Pi's diff generator remain intact.
 
@@ -239,6 +240,7 @@ src/capture.ts   Codemode ancestry and session-local capture state
 src/changes.ts   Display metadata and write diff generation
 src/write.ts     Built-in write delegation and in-queue snapshots
 src/render.ts    Renderer composition, previews, and full view
+src/diff.ts      Theme-aware line colors and single-line word highlighting
 src/host.ts      Fail-closed PiG host identification
 src/pig.ts       Lazily loaded PiG-only non-context entry display
 test/            Unit, filesystem, real-Pi integration, and package tests

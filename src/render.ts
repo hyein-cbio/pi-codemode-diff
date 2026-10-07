@@ -7,6 +7,7 @@ import {
 import { Container, Spacer, Text, truncateToWidth, type Component } from "@earendil-works/pi-tui";
 import type { Capture } from "./capture.ts";
 import { countChanges, readChanges, type Change } from "./changes.ts";
+import { coloredDiff } from "./diff.ts";
 
 export const PREVIEW_CHANGES = 3;
 export const PREVIEW_LINES = 8;
@@ -23,12 +24,6 @@ export function inlineText(text: string): string {
 function expandHint(theme: Theme): string {
   const key = keyText("app.tools.expand");
   return theme.fg("dim", key ? `${key} to expand` : "expand tool output");
-}
-
-function coloredDiff(diff: string, theme: Theme): string {
-  return safeText(diff).split("\n").map((line) =>
-    theme.fg(line.startsWith("+") ? "toolDiffAdded" : line.startsWith("-") ? "toolDiffRemoved" : "toolDiffContext", line),
-  ).join("\n");
 }
 
 class DiffPreview implements Component {
@@ -74,7 +69,7 @@ export function diffSection(changes: readonly Change[], expanded: boolean, theme
     const header = `${theme.fg("toolTitle", inlineText(change.path))} ${theme.fg("muted", `[${label}]`)}${counts}`;
     section.addChild(new Text(header, 0, 0));
     if (change.diff) {
-      const styled = coloredDiff(change.diff, theme);
+      const styled = coloredDiff(safeText(change.diff), theme);
       section.addChild(expanded ? new Text(styled, 0, 0) : new DiffPreview(styled, theme));
     }
     if (change.note) section.addChild(new Text(theme.fg("muted", inlineText(change.note)), 0, 0));
