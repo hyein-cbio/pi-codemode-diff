@@ -1,4 +1,5 @@
-import type { Change, DiffDetails } from "./changes.ts";
+import { limitChange, type Change, type DiffDetails } from "./changes.ts";
+import { MAX_BATCH_DIFF_BYTES, MAX_BATCH_DIFF_LINES, lineCount } from "./limits.ts";
 
 interface Call {
   rootId: string;
@@ -9,6 +10,8 @@ interface Batch {
   callIds: Set<string>;
   changes: Map<string, Change>;
   nextOrder: number;
+  diffBytes: number;
+  diffLines: number;
   invalidate?: () => void;
 }
 
@@ -23,7 +26,7 @@ export class Capture {
     const rootId = parentRoot ?? id;
     let batch = this.batches.get(rootId);
     if (!batch) {
-      batch = { callIds: new Set(), changes: new Map(), nextOrder: 0 };
+      batch = { callIds: new Set(), changes: new Map(), nextOrder: 0, diffBytes: 0, diffLines: 0 };
       this.batches.set(rootId, batch);
     }
     batch.callIds.add(id);
@@ -43,7 +46,13 @@ export class Capture {
     const rootId = this.rootFor(change.toolCallId);
     const batch = rootId ? this.batches.get(rootId) : undefined;
     if (!batch) return;
-    batch.changes.set(change.toolCallId, change);
+    const previous = batch.changes.get(change.toolCallId)?.diff ?? "";
+    const bytes = batch.diffBytes - Buffer.byteLength(previous, "utf8");
+    const lines = batch.diffLines - lineCount(previous);
+    const bounded = limitChange(change, MAX_BATCH_DIFF_BYTES - bytes, MAX_BATCH_DIFF_LINES - lines);
+    batch.changes.set(change.toolCallId, bounded);
+    batch.diffBytes = bytes + Buffer.byteLength(bounded.diff ?? "", "utf8");
+    batch.diffLines = lines + lineCount(bounded.diff ?? "");
     this.redraw(batch);
   }
 

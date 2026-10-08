@@ -3,7 +3,8 @@ import { test } from "node:test";
 import type { ExtensionAPI, Theme, ToolRenderers } from "@earendil-works/pi-coding-agent";
 import { Text, visibleWidth, type Component } from "@earendil-works/pi-tui";
 import { Capture } from "../src/capture.ts";
-import { DETAILS_KEY, type Change } from "../src/changes.ts";
+import { DETAILS_KEY, limitChange, type Change } from "../src/changes.ts";
+import { MAX_DIFF_BYTES } from "../src/limits.ts";
 import { diffSection, PREVIEW_CHANGES, PREVIEW_LINES, registerDiffRenderer } from "../src/render.ts";
 
 const theme = {
@@ -31,6 +32,15 @@ test("collapsed previews are bounded; full view retains all changes and lines", 
   assert.match(full, /line-30/);
   assert.match(full, /call-4.ts/);
   assert.equal(full.includes("more lines"), false);
+});
+
+test("omitted large diffs remain notices in both preview and expanded views", () => {
+  const item = limitChange(change("large", "+1 " + "secret-marker".repeat(MAX_DIFF_BYTES)));
+  for (const expanded of [false, true]) {
+    const output = text(diffSection([item], expanded, theme));
+    assert.match(output, /Diff omitted: diff too large/);
+    assert.doesNotMatch(output, /secret-marker|\+0 -0|more lines/);
+  }
 });
 
 test("truncation uses wrapped visual lines, not just logical line count", () => {

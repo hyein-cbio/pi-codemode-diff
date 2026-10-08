@@ -1,4 +1,8 @@
 import { generateDiffString } from "@earendil-works/pi-coding-agent";
+import {
+  MAX_BATCH_DIFF_BYTES, MAX_BATCH_DIFF_LINES, MAX_DIFF_BYTES, MAX_DIFF_LINES,
+  lineCount, textFits, writeTextFits,
+} from "./limits.ts";
 
 /** Rendering metadata only: never add this payload to model-facing content. */
 export const DETAILS_KEY = "piCodemodeDiff";
@@ -10,6 +14,9 @@ export interface Change {
   kind: "edit" | "create" | "overwrite" | "unknown";
   diff?: string;
   note?: string;
+  /** Byte sizes only; omitted snapshots/diffs never retain source content. */
+  beforeBytes?: number;
+  afterBytes?: number;
   /** A write can complete before the tool observes cancellation. */
   toolReportedError?: boolean;
 }
@@ -39,9 +46,42 @@ export function readChanges(details: unknown): Change[] | undefined {
       ["edit", "create", "overwrite", "unknown"].includes(item.kind) &&
       (item.diff === undefined || typeof item.diff === "string") &&
       (item.note === undefined || typeof item.note === "string") &&
+      (item.beforeBytes === undefined || validSize(item.beforeBytes)) &&
+      (item.afterBytes === undefined || validSize(item.afterBytes)) &&
       (item.toolReportedError === undefined || typeof item.toolReportedError === "boolean");
   });
-  return valid ? payload.changes as Change[] : undefined;
+  if (!valid) return undefined;
+  // Older sessions may contain unbounded diffs. Bound their display too, without
+  // rewriting the saved transcript or changing model-facing results.
+  let bytes = MAX_BATCH_DIFF_BYTES;
+  let lines = MAX_BATCH_DIFF_LINES;
+  return (payload.changes as Change[]).map(change => {
+    const bounded = limitChange(change, bytes, lines);
+    bytes -= Buffer.byteLength(bounded.diff ?? "", "utf8");
+    lines -= lineCount(bounded.diff ?? "");
+    return bounded;
+  });
+}
+
+function validSize(value: unknown): boolean {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+/** Shared by write generation, edit capture, and resumed-session rendering. */
+export function limitChange(
+  change: Change,
+  remainingBytes = MAX_BATCH_DIFF_BYTES,
+  remainingLines = MAX_BATCH_DIFF_LINES,
+): Change {
+  if (change.diff === undefined) return change;
+  const reason = !textFits(change.diff, MAX_DIFF_BYTES, MAX_DIFF_LINES)
+    ? "diff too large"
+    : !textFits(change.diff, remainingBytes, remainingLines)
+      ? "codemode diff budget exceeded"
+      : undefined;
+  if (!reason) return change;
+  const { diff: _diff, ...metadata } = change;
+  return { ...metadata, note: `Diff omitted: ${reason}.${change.note ? ` ${change.note}` : ""}` };
 }
 
 export function countChanges(diff: string): { added: number; removed: number } {
@@ -58,6 +98,7 @@ export function countChanges(diff: string): { added: number; removed: number } {
 export type BeforeWrite =
   | { kind: "missing" }
   | { kind: "text"; content: string }
+  | { kind: "omitted"; sizeBytes: number }
   | { kind: "unavailable"; reason: string };
 
 function displayText(text: string): string {
@@ -75,9 +116,19 @@ export function writeChange(
     toolCallId,
     tool: "write",
     path,
-    kind: before.kind === "missing" ? "create" : before.kind === "text" ? "overwrite" : "unknown",
+    kind: before.kind === "missing" ? "create" : before.kind === "text" || before.kind === "omitted" ? "overwrite" : "unknown",
   };
   if (before.kind === "unavailable") return { ...base, note: before.reason };
+  if (before.kind === "omitted" || !writeTextFits(content) ||
+      (before.kind === "text" && !writeTextFits(before.content))) {
+    const beforeBytes = before.kind === "missing" ? 0 : before.kind === "omitted"
+      ? before.sizeBytes : Buffer.byteLength(before.content, "utf8");
+    const afterBytes = Buffer.byteLength(content, "utf8");
+    return {
+      ...base, beforeBytes, afterBytes,
+      note: `Diff omitted: file too large (byte or line limit; before: ${beforeBytes} bytes; after: ${afterBytes} bytes).`,
+    };
+  }
   if (content.includes("\0")) return { ...base, note: "Binary content; text diff unavailable." };
 
   const oldContent = before.kind === "missing" ? "" : before.content;
@@ -92,5 +143,8 @@ export function writeChange(
   } else if (oldDisplay === newDisplay) {
     note = "Only line endings or the UTF-8 BOM changed (normalized in this view).";
   }
-  return { ...base, diff, ...(note ? { note } : {}) };
+  const change = limitChange({ ...base, diff, ...(note ? { note } : {}) });
+  return change.diff === undefined ? {
+    ...change, beforeBytes: Buffer.byteLength(oldContent, "utf8"), afterBytes: Buffer.byteLength(content, "utf8"),
+  } : change;
 }

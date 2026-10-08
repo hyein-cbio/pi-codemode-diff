@@ -36,7 +36,7 @@ Public APIs used: `registerToolRenderer`, `tool_execution_start/end`, `tool_resu
 Install the released version directly from GitHub:
 
 ```bash
-pi install git:github.com/hyein-cbio/pi-codemode-diff@v0.1.2
+pi install git:github.com/hyein-cbio/pi-codemode-diff@v0.1.3
 ```
 
 You can also install the released package from npm:
@@ -114,9 +114,28 @@ Because host detection depends on a private SDK shim, revalidate compatibility f
 - Repeated changes to the same file appear separately by call; they are not merged into a cumulative diff.
 - Single-line replacements highlight changed words with inverse video: green on added lines, red on removed lines, like Pi's native edit diff. This works in both preview and expanded views, for captured edits and write overwrites, including PiG entries. Like Pi, only a consecutive block with exactly one removed and one added line gets word highlighting; larger replacement blocks and standalone additions/deletions keep line colors. Leading indentation is not highlighted. Whitespace changes that cannot be reconstructed exactly keep their original lines without word highlighting. Very large or complex word comparisons also fall back to line colors to keep rendering responsive.
 
-Full view means **all change hunks in the captured diff**, not the entire unchanged file. The surrounding context lines and omission markers produced by Pi's diff generator remain intact.
+Full view means **all change hunks in a retained diff**, not the entire unchanged file. The surrounding context lines and omission markers produced by Pi's diff generator remain intact. Diffs omitted by the safety budgets below cannot be recovered by expanding the view.
 
-Preview limits apply only to rendering. Stored diffs are not truncated. You can adjust `PREVIEW_CHANGES` and `PREVIEW_LINES` in `src/render.ts`.
+Preview limits apply only to rendering. You can adjust `PREVIEW_CHANGES` and `PREVIEW_LINES` in `src/render.ts`.
+
+### Diff safety budgets
+
+The extension limits its display data independently of the preview:
+
+| Stage | UTF-8 byte limit | Logical line limit |
+|---|---:|---:|
+| Each previous/new write input, before diff generation | 256 KiB | 2,000 |
+| Each stored write/edit diff | 64 KiB | 2,000 |
+| Total retained diffs per parent codemode call | 256 KiB | 8,000 |
+
+Limits are inclusive; exceeding either dimension omits the **entire diff**, rather than storing a partial diff. LF, CRLF, and CR count as line endings; a final ending does not add another empty line. Byte limits also cover giant single-line JSON and multibyte text. The constants live in `src/limits.ts`.
+
+- Oversized writes show `Diff omitted: file too large` with previous/new byte sizes when available. Output-limit and parent-budget omissions show their own reason. No snapshot, full diff, hash, or backup is retained for an omitted write.
+- Existing-file snapshots check the open descriptor's size and read at most 256 KiB plus one overflow-detection byte. A file growing after the size check cannot trigger an unbounded read. If the new content is already over budget, the previous content is not read.
+- The shared storage budget applies to both write and edit diffs. It never alters the edit tool's original result or limits Pi's own edit diff computation.
+- Parallel parent calls have separate budgets. Within a parent, capture completion order determines which diffs fit; display order remains call-start order. Small later diffs may still fit after a larger one is omitted.
+- Resumed older sessions receive the same display limits, without rewriting their saved data. Existing oversized session files are not reduced retroactively.
+- These are **display-only limits**: file bytes, tool success/failure, model-facing results, and direct write behavior are unchanged. They bound retained diff payloads, not all tool arguments, metadata, or the total size of a long session.
 
 ## How it works
 
@@ -129,7 +148,7 @@ Pi's existing edit tool executes unchanged. The extension collects `details.diff
 The built-in write tool does not return a diff. The extension therefore registers a tool with the same name and delegates to Pi's `createWriteToolDefinition()`.
 
 - Direct write calls use the original execution, result, and renderer. No previous-content snapshot is read.
-- Writes inside codemode read the previous content **inside Pi's file mutation queue**, immediately before writing, and generate a diff after the write succeeds.
+- Writes inside codemode take a bounded previous-content snapshot **inside Pi's file mutation queue**, immediately before writing, and generate a diff after the write succeeds when both inputs fit the safety budgets.
 - New files show their content as additions. Empty-file creation is also reported.
 - Existing files show the diff between the actual previous content and the new content.
 - Unreadable previous content, binary files, and invalid UTF-8 produce a notice that a text diff is unavailable. The extension does not guess the previous content or treat these cases as new files, and it does not block an otherwise valid write.
@@ -184,7 +203,7 @@ This extension improves **change visibility**. It does not add undo tools, check
 - Extensions such as compact-transcript may hide diffs in the collapsed view by reducing tool results to one-line summaries. Disable those extensions or expand the tool output if needed.
 - Write diffs normalize CRLF/CR line endings and the UTF-8 BOM for display. Changes hidden by normalization are reported with a notice. These diffs are not byte-exact recovery records.
 - Original files are not saved separately. The previous-content snapshot is not retained after computing the write diff.
-- Large diffs can increase **session file size and rendering cost**, rather than model context usage.
+- Retained diffs increase **session file size and rendering cost**, rather than model context usage. The safety budgets bound each diff and each parent call's diff payload; many calls can still accumulate a large session.
 - Terminal control characters in file content and paths are replaced for display so they cannot execute as terminal escape sequences. The stored diff data is unchanged.
 - Capture is not guaranteed through forced process termination or every cancellation path. If a write completes before the tool reports an error or cancellation, the observed write and that status are displayed together.
 - Result content remains unchanged in print, JSON, and RPC modes. The additional terminal diff UI uses Pi's TUI renderer.
@@ -238,6 +257,7 @@ Run `pi -e /path/to/pi-codemode-diff/src/index.ts` from a separate temporary wor
 src/index.ts     Event wiring and parent-result metadata persistence
 src/capture.ts   Codemode ancestry and session-local capture state
 src/changes.ts   Display metadata and write diff generation
+src/limits.ts    Write input, stored diff, and parent-call safety budgets
 src/write.ts     Built-in write delegation and in-queue snapshots
 src/render.ts    Renderer composition, previews, and full view
 src/diff.ts      Theme-aware line colors and single-line word highlighting

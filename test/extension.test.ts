@@ -95,6 +95,33 @@ test("direct writes retain native results and do not acquire diff metadata", asy
   assert.equal(host.tools.get("write")!.defaultActive, false);
 });
 
+test("direct writes follow execution cwd changes without reloading the extension", async t => {
+  const initialCwd = await temp(t);
+  const nextCwd = await temp(t);
+  // Capture an isolated startup cwd without changing the real process cwd.
+  // The same registered wrapper must use each later execution context instead.
+  const cwdMock = t.mock.method(process, "cwd", () => initialCwd);
+  let host: ReturnType<typeof harness>;
+  try {
+    host = harness();
+  } finally {
+    cwdMock.mock.restore();
+  }
+  const writer = host.tools.get("write");
+  const path = "nested/cwd.txt";
+  const first = await host.runWrite(initialCwd, "direct-first", path, "initial workspace");
+  const second = await host.runWrite(nextCwd, "direct-second", path, "new workspace");
+
+  assert.strictEqual(host.tools.get("write"), writer, "No reload or tool replacement should be needed");
+  assert.equal(await readFile(join(initialCwd, path), "utf8"), "initial workspace", "The old cwd must not receive the second write");
+  assert.equal(await readFile(join(nextCwd, path), "utf8"), "new workspace");
+  for (const { result, modified } of [first, second]) {
+    assert.deepEqual(modified.content, [{ type: "text", text: `Successfully wrote to ${path}` }]);
+    assert.equal(result.details, undefined);
+    assert.equal(readChanges(modified.details), undefined);
+  }
+});
+
 test("nested create and overwrite generate diffs, while write results stay unchanged", async (t) => {
   const host = harness();
   const dir = await temp(t);
