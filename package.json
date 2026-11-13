@@ -58,5 +58,8 @@
   },
   "dependencies": {
     "diff": "^8.0.4"
+  },
+  "overrides": {
+    "undici": "^8.12.3"
   }
 }
